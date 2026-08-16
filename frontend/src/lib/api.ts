@@ -80,3 +80,20 @@ export function runVerification(accessToken: string) {
 export function getVerificationStatus(accessToken: string) {
   return request<VerifyStatusResponse>("/plaid/verify/status", accessToken, { method: "GET" });
 }
+
+export type SignupRole = "tenant" | "landlord";
+
+export type SignupResponse = { id: string; email: string | null; role: SignupRole };
+
+export async function signupUser(email: string, password: string, role: SignupRole) {
+  const res = await fetch(`${API_BASE_URL}/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, role }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `/auth/signup failed (${res.status})`);
+  }
+  return res.json() as Promise<SignupResponse>;
+}

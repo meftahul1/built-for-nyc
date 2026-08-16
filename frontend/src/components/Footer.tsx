@@ -67,12 +67,12 @@ export function Footer() {
             </h4>
             <ul className="flex flex-col gap-2.5 text-sm text-neutral-600">
               <li>
-                <Link href="/dashboard" className="hover:text-neutral-900 transition-colors font-medium text-[#FF385C]">
-                  Landlord Dashboard
+                <Link href="/landlord/login" className="hover:text-neutral-900 transition-colors font-medium text-[#FF385C]">
+                  Landlord Portal
                 </Link>
               </li>
               <li>
-                <Link href="/dashboard" className="hover:text-neutral-900 transition-colors">
+                <Link href="/landlord/signup" className="hover:text-neutral-900 transition-colors">
                   Post a Property
                 </Link>
               </li>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Eye, EyeOff, Lock, Mail, ArrowRight, CheckCircle2, User, Building2, AlertCircle, MailCheck } from "lucide-react";
+import { ShieldCheck, Eye, EyeOff, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useVerification } from "@/context/VerificationContext";
 import { VerificationPromptModal } from "@/components/VerificationPromptModal";
@@ -16,10 +16,8 @@ export default function SignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<"tenant" | "landlord">("tenant");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [needsEmailConfirmation, setNeedsEmailConfirmation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
 
@@ -38,7 +36,7 @@ export default function SignupPage() {
     setErrorMessage(null);
     setIsLoading(true);
 
-    const { error, needsEmailConfirmation: mustConfirm } = await signUp(email, password, role);
+    const { error } = await signUp(email, password, "tenant");
 
     if (error) {
       setErrorMessage(error);
@@ -48,16 +46,8 @@ export default function SignupPage() {
 
     setIsSuccess(true);
     setIsLoading(false);
-    setNeedsEmailConfirmation(mustConfirm);
 
-    if (mustConfirm) return;
-
-    if (role === "landlord") {
-      setTimeout(() => router.push("/dashboard"), 1200);
-      return;
-    }
-
-    const status = await refreshStatus();
+    const { status } = await refreshStatus();
     if (status === "verified") {
       router.push("/tenant-dashboard");
     } else {
@@ -77,36 +67,21 @@ export default function SignupPage() {
             </Link>
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight text-neutral-900">
-                Create your account
+                Create your tenant account
               </h1>
               <p className="text-sm text-neutral-500 mt-1">
-                Join MiddleMan to verify or manage rental documents
+                Verify once with Plaid, apply to any listing instantly
               </p>
             </div>
           </div>
 
           {isSuccess ? (
             <div className="flex flex-col items-center text-center gap-4 py-6 animate-in fade-in zoom-in-95">
-              <div className={`h-16 w-16 rounded-full flex items-center justify-center ${needsEmailConfirmation ? "bg-blue-100 text-blue-600" : "bg-emerald-100 text-emerald-600"}`}>
-                {needsEmailConfirmation ? <MailCheck className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
+              <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                <CheckCircle2 className="h-10 w-10" />
               </div>
-              <h3 className="text-xl font-bold text-neutral-900">
-                {needsEmailConfirmation ? "Confirm your email" : "Account Created!"}
-              </h3>
-              <p className="text-xs text-neutral-500">
-                {needsEmailConfirmation
-                  ? `We sent a confirmation link to ${email}. Verify your email, then log in to continue.`
-                  : "Welcome to MiddleMan. Your verification passport is ready."}
-              </p>
-              {needsEmailConfirmation && (
-                <Link
-                  href="/login"
-                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#FF385C] to-[#E00B41] px-6 py-3 text-xs font-bold text-white shadow-md transition-all hover:scale-105"
-                >
-                  Go to Log In
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              )}
+              <h3 className="text-xl font-bold text-neutral-900">Account Created!</h3>
+              <p className="text-xs text-neutral-500">Welcome to MiddleMan. Redirecting…</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -116,39 +91,6 @@ export default function SignupPage() {
                   {errorMessage}
                 </div>
               )}
-
-              {/* Role Toggle Selector */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-700">
-                  I am joining as a
-                </label>
-                <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-neutral-100 border border-neutral-200">
-                  <button
-                    type="button"
-                    onClick={() => setRole("tenant")}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                      role === "tenant"
-                        ? "bg-white text-neutral-900 shadow-sm"
-                        : "text-neutral-500 hover:text-neutral-900"
-                    }`}
-                  >
-                    <User className="h-3.5 w-3.5 text-[#FF385C]" />
-                    Tenant
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole("landlord")}
-                    className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                      role === "landlord"
-                        ? "bg-white text-neutral-900 shadow-sm"
-                        : "text-neutral-500 hover:text-neutral-900"
-                    }`}
-                  >
-                    <Building2 className="h-3.5 w-3.5 text-[#FF385C]" />
-                    Landlord
-                  </button>
-                </div>
-              </div>
 
               {/* Email Field */}
               <div className="space-y-1.5">
@@ -235,11 +177,19 @@ export default function SignupPage() {
           )}
 
           {/* Footer Link */}
-          <div className="mt-8 border-t border-neutral-100 pt-6 text-center text-xs text-neutral-500">
-            Already have an account?{" "}
-            <Link href="/login" className="font-bold text-[#FF385C] hover:underline">
-              Log in
-            </Link>
+          <div className="mt-8 border-t border-neutral-100 pt-6 text-center text-xs text-neutral-500 space-y-2">
+            <p>
+              Already have an account?{" "}
+              <Link href="/login" className="font-bold text-[#FF385C] hover:underline">
+                Log in
+              </Link>
+            </p>
+            <p>
+              Are you a landlord?{" "}
+              <Link href="/landlord/signup" className="font-bold text-blue-700 hover:underline">
+                Create a landlord account
+              </Link>
+            </p>
           </div>
         </div>
       </div>

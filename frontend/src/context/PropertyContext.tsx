@@ -1,6 +1,28 @@
 "use client";
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useVerification, VerificationResult } from "@/context/VerificationContext";
+
+export interface TenantCriteria {
+  minIncomeMultiplier: number; // e.g. 3 = tenant must earn 3x the monthly rent
+  minCreditScore: number;
+  requireIncomeVerification: boolean;
+  requireIdentityVerification: boolean;
+  requireBackgroundCheck: boolean;
+  petsAllowed: boolean;
+  notes: string;
+}
+
+export const DEFAULT_CRITERIA: TenantCriteria = {
+  minIncomeMultiplier: 3,
+  minCreditScore: 650,
+  requireIncomeVerification: true,
+  requireIdentityVerification: true,
+  requireBackgroundCheck: true,
+  petsAllowed: false,
+  notes: "",
+};
 
 export interface Property {
   id: string;
@@ -22,6 +44,7 @@ export interface Property {
   landlordResponseTime: string;
   verifiedFeatures: string[];
   isLandlordProperty?: boolean;
+  criteria: TenantCriteria;
 }
 
 export interface BankAccount {
@@ -47,7 +70,6 @@ export interface TenantProfile {
   id: string;
   name: string;
   email: string;
-  avatar: string;
   identityStatus: "verified" | "pending" | "unverified";
   identityDetails: string;
   monthlyVerifiedIncome: number;
@@ -57,7 +79,16 @@ export interface TenantProfile {
   creditUtilization: number;
   bankAccounts: BankAccount[];
   transactions: Transaction[];
-  hasAppliedToProperties: string[]; // List of property IDs this tenant applied to
+}
+
+export type ApplicationStatus = "pending" | "approved" | "rejected";
+
+export interface Application {
+  id: string;
+  propertyId: string;
+  tenantId: string;
+  status: ApplicationStatus;
+  appliedAt: string;
 }
 
 const INITIAL_PROPERTIES: Property[] = [
@@ -80,6 +111,7 @@ const INITIAL_PROPERTIES: Property[] = [
     landlordResponseTime: "under 1 hour",
     verifiedFeatures: ["Income Verified", "Instant Plaid Check", "Clean Ownership Records", "Zero Eviction History"],
     isLandlordProperty: true,
+    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 3, minCreditScore: 680, notes: "No smoking. Renters insurance required at move-in." },
   },
   {
     id: "prop-2",
@@ -100,6 +132,7 @@ const INITIAL_PROPERTIES: Property[] = [
     landlordResponseTime: "within a few hours",
     verifiedFeatures: ["Deed Verified", "Income Pre-Screened", "Background Verified"],
     isLandlordProperty: false,
+    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 2.5, minCreditScore: 620, petsAllowed: true, requireBackgroundCheck: false },
   },
   {
     id: "prop-3",
@@ -120,132 +153,215 @@ const INITIAL_PROPERTIES: Property[] = [
     landlordResponseTime: "under 15 minutes",
     verifiedFeatures: ["Plaid Bank Income Sync", "ID Verified", "Rental Ledger Cleared"],
     isLandlordProperty: true,
+    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 3, minCreditScore: 700 },
   },
 ];
 
-const MOCK_TENANTS: Record<string, TenantProfile> = {
-  "tenant-me": {
-    id: "tenant-me",
-    name: "Alex Rivera (You)",
-    email: "alex.rivera@example.com",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-    identityStatus: "verified",
-    identityDetails: "NY Driver License #****4912 (SSN Verified)",
-    monthlyVerifiedIncome: 9450,
-    annualVerifiedIncome: 113400,
-    creditScore: 765,
-    creditTier: "Tier 1 Excellent",
-    creditUtilization: 12,
-    bankAccounts: [
-      { id: "b1", institutionName: "Chase Bank", accountName: "Total Checking", accountType: "checking", mask: "4912", balance: 14250, isPrimary: true },
-      { id: "b2", institutionName: "Marcus by Goldman Sachs", accountName: "High Yield Savings", accountType: "savings", mask: "8821", balance: 42800 },
-      { id: "b3", institutionName: "American Express", accountName: "Gold Credit", accountType: "credit", mask: "1004", balance: 1120 },
-    ],
-    transactions: [
-      { id: "t1", date: "2026-08-01", name: "Stripe Direct Deposit / Tech Corp", category: "Payroll", amount: 4725.00, type: "credit" },
-      { id: "t2", date: "2026-07-15", name: "Stripe Direct Deposit / Tech Corp", category: "Payroll", amount: 4725.00, type: "credit" },
-      { id: "t3", date: "2026-07-01", name: "West Village Realty / Rent Payment", category: "Rent", amount: 3500.00, type: "debit" },
-      { id: "t4", date: "2026-06-15", name: "Stripe Direct Deposit / Tech Corp", category: "Payroll", amount: 4725.00, type: "credit" },
-    ],
-    hasAppliedToProperties: ["prop-1", "prop-3"],
-  },
-  "tenant-[#002]": {
-    id: "tenant-#002",
+// Seed applicant fixtures so the landlord Applicants tab has demo content
+// before any real tenant has applied. Real tenants get their own profile
+// (keyed by their Supabase user id) created the moment they apply.
+const SEED_TENANTS: Record<string, TenantProfile> = {
+  "demo-tenant-jordan": {
+    id: "demo-tenant-jordan",
     name: "Jordan Vance",
     email: "jordan.vance@example.com",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
     identityStatus: "verified",
-    identityDetails: "CA State Passport #****8810 (Verified)",
+    identityDetails: "CA State Passport (Verified)",
     monthlyVerifiedIncome: 11200,
     annualVerifiedIncome: 134400,
     creditScore: 780,
     creditTier: "Tier 1 Excellent",
     creditUtilization: 8,
-    bankAccounts: [
-      { id: "b4", institutionName: "Bank of America", accountName: "Advantage Checking", accountType: "checking", mask: "9914", balance: 18900, isPrimary: true },
-      { id: "b5", institutionName: "Fidelity Investments", accountName: "Cash Management", accountType: "savings", mask: "3310", balance: 65400 },
-    ],
-    transactions: [
-      { id: "t5", date: "2026-08-01", name: "Google Payroll Direct Deposit", category: "Payroll", amount: 5600.00, type: "credit" },
-      { id: "t6", date: "2026-07-15", name: "Google Payroll Direct Deposit", category: "Payroll", amount: 5600.00, type: "credit" },
-    ],
-    hasAppliedToProperties: ["prop-1"],
-  },
-  "tenant-unapplied": {
-    id: "tenant-unapplied",
-    name: "Unapplied Private Tenant",
-    email: "private.tenant@example.com",
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80",
-    identityStatus: "verified",
-    identityDetails: "Verified Identity (Private)",
-    monthlyVerifiedIncome: 12500,
-    annualVerifiedIncome: 150000,
-    creditScore: 790,
-    creditTier: "Tier 1",
-    creditUtilization: 5,
     bankAccounts: [],
     transactions: [],
-    hasAppliedToProperties: [], // Has NOT applied to landlord properties!
+  },
+  "demo-tenant-priya": {
+    id: "demo-tenant-priya",
+    name: "Priya Anand",
+    email: "priya.anand@example.com",
+    identityStatus: "verified",
+    identityDetails: "NY Driver License (Verified)",
+    monthlyVerifiedIncome: 9450,
+    annualVerifiedIncome: 113400,
+    creditScore: 765,
+    creditTier: "Tier 1 Excellent",
+    creditUtilization: 12,
+    bankAccounts: [],
+    transactions: [],
+  },
+  "demo-tenant-casey": {
+    id: "demo-tenant-casey",
+    name: "Casey Morgan",
+    email: "casey.morgan@example.com",
+    identityStatus: "pending",
+    identityDetails: "Bank connection not yet completed",
+    monthlyVerifiedIncome: 0,
+    annualVerifiedIncome: 0,
+    creditScore: 0,
+    creditTier: "Not Available",
+    creditUtilization: 0,
+    bankAccounts: [],
+    transactions: [],
   },
 };
 
+const SEED_APPLICATIONS: Application[] = [
+  { id: "app-seed-1", propertyId: "prop-1", tenantId: "demo-tenant-priya", status: "approved", appliedAt: "2026-08-01T10:00:00Z" },
+  { id: "app-seed-2", propertyId: "prop-1", tenantId: "demo-tenant-jordan", status: "pending", appliedAt: "2026-08-10T14:30:00Z" },
+  { id: "app-seed-3", propertyId: "prop-3", tenantId: "demo-tenant-casey", status: "pending", appliedAt: "2026-08-12T09:15:00Z" },
+];
+
+function nameFromEmail(email: string): string {
+  const local = email.split("@")[0] ?? "Tenant";
+  return local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 interface PropertyContextType {
   properties: Property[];
-  addProperty: (newProp: Omit<Property, "id" | "verifiedStatus" | "landlordName" | "landlordAvatar" | "landlordRating" | "landlordResponseTime" | "verifiedFeatures" | "isLandlordProperty">) => void;
+  addProperty: (
+    newProp: Omit<Property, "id" | "verifiedStatus" | "landlordName" | "landlordAvatar" | "landlordRating" | "landlordResponseTime" | "verifiedFeatures" | "isLandlordProperty" | "criteria">,
+    criteria: TenantCriteria
+  ) => void;
   deleteProperty: (id: string) => void;
+  updatePropertyCriteria: (id: string, criteria: TenantCriteria) => void;
   tenants: Record<string, TenantProfile>;
-  applyToProperty: (propertyId: string, tenantId?: string) => void;
-  hasAppliedToLandlord: (tenantId: string, propertyId?: string) => boolean;
+  applications: Application[];
+  applyToProperty: (propertyId: string) => { ok: boolean; message: string };
+  hasAppliedTo: (propertyId: string) => boolean;
+  approveApplication: (applicationId: string) => void;
+  rejectApplication: (applicationId: string) => void;
+  /** Snapshots the current tenant's Plaid verification state into the shared
+   * applicant pool a landlord's checklist reads from. Call this after any
+   * action that can change verification status — applying, or finishing
+   * Plaid Link. Pass `override` when calling right after an awaited
+   * verification call (e.g. `refreshStatus()`/`completeLink()`) so the write
+   * uses that call's actual result instead of a context closure that may not
+   * have re-rendered yet. */
+  syncOwnProfile: (override?: VerificationResult) => void;
 }
 
 const PropertyContext = createContext<PropertyContextType | undefined>(undefined);
 
 export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
-  const [tenants, setTenants] = useState<Record<string, TenantProfile>>(MOCK_TENANTS);
+  const { user, role } = useAuth();
+  const { status: verificationStatus, data: verificationData } = useVerification();
 
-  const addProperty = (
-    newProp: Omit<Property, "id" | "verifiedStatus" | "landlordName" | "landlordAvatar" | "landlordRating" | "landlordResponseTime" | "verifiedFeatures" | "isLandlordProperty">
-  ) => {
+  const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
+  const [tenants, setTenants] = useState<Record<string, TenantProfile>>(SEED_TENANTS);
+  const [applications, setApplications] = useState<Application[]>(SEED_APPLICATIONS);
+
+  const syncOwnProfile = useCallback(
+    (override?: VerificationResult) => {
+      if (!user || role !== "tenant") return;
+      const effectiveStatus = override?.status ?? verificationStatus;
+      const effectiveData = override ? override.data : verificationData;
+      setTenants((prev) => {
+        const existing = prev[user.id];
+        const isVerified = effectiveStatus === "verified" && !!effectiveData;
+        const next: TenantProfile = {
+          id: user.id,
+          name: existing?.name ?? nameFromEmail(user.email ?? "tenant"),
+          email: user.email ?? existing?.email ?? "",
+          identityStatus: isVerified ? "verified" : effectiveStatus === "processing" ? "pending" : "unverified",
+          identityDetails: isVerified ? "Bank-verified identity via Plaid" : "Awaiting bank verification",
+          monthlyVerifiedIncome: isVerified ? effectiveData?.income?.predicted_monthly_income ?? 0 : 0,
+          annualVerifiedIncome: isVerified ? (effectiveData?.income?.predicted_monthly_income ?? 0) * 12 : 0,
+          creditScore: existing?.creditScore ?? 0,
+          creditTier: existing?.creditTier ?? "Not Available",
+          creditUtilization: existing?.creditUtilization ?? 0,
+          bankAccounts: isVerified
+            ? (effectiveData?.balances ?? []).map((b, idx) => ({
+                id: b.account_id,
+                institutionName: effectiveData?.item?.institution_name ?? "Linked Bank",
+                accountName: b.account_name ?? "Linked Account",
+                accountType: (b.account_subtype === "credit card" ? "credit" : b.account_subtype === "savings" ? "savings" : "checking") as BankAccount["accountType"],
+                mask: b.account_id.slice(-4),
+                balance: b.current_balance ?? b.available_balance ?? 0,
+                isPrimary: idx === 0,
+              }))
+            : [],
+          transactions: existing?.transactions ?? [],
+        };
+        return { ...prev, [user.id]: next };
+      });
+    },
+    [user, role, verificationStatus, verificationData]
+  );
+
+  const addProperty: PropertyContextType["addProperty"] = (newProp, criteria) => {
     const created: Property = {
       ...newProp,
       id: `prop-${Date.now()}`,
       verifiedStatus: "verified",
-      landlordName: "Sarah Jenkins (You)",
-      landlordAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
+      landlordName: "You",
+      landlordAvatar: "",
       landlordRating: 5.0,
       landlordResponseTime: "Instant",
       verifiedFeatures: ["Income Verified", "Plaid Bank Sync", "Owner Document Verified"],
       isLandlordProperty: true,
+      criteria,
     };
     setProperties((prev) => [created, ...prev]);
   };
 
   const deleteProperty = (id: string) => {
     setProperties((prev) => prev.filter((p) => p.id !== id));
+    setApplications((prev) => prev.filter((a) => a.propertyId !== id));
   };
 
-  const applyToProperty = (propertyId: string, tenantId: string = "tenant-me") => {
-    setTenants((prev) => {
-      const currentTenant = prev[tenantId];
-      if (!currentTenant) return prev;
-      if (currentTenant.hasAppliedToProperties.includes(propertyId)) return prev;
-      return {
-        ...prev,
-        [tenantId]: {
-          ...currentTenant,
-          hasAppliedToProperties: [...currentTenant.hasAppliedToProperties, propertyId],
-        },
-      };
-    });
+  const updatePropertyCriteria = (id: string, criteria: TenantCriteria) => {
+    setProperties((prev) => prev.map((p) => (p.id === id ? { ...p, criteria } : p)));
   };
 
-  const hasAppliedToLandlord = (tenantId: string) => {
-    const tenant = tenants[tenantId];
-    if (!tenant) return false;
-    // Check if tenant has applied to any landlord property
-    const landlordPropIds = properties.filter((p) => p.isLandlordProperty).map((p) => p.id);
-    return tenant.hasAppliedToProperties.some((pId) => landlordPropIds.includes(pId));
+  const applyToProperty = useCallback(
+    (propertyId: string): { ok: boolean; message: string } => {
+      if (!user || role !== "tenant") {
+        return { ok: false, message: "You must be logged in as a tenant to apply." };
+      }
+      let alreadyApplied = false;
+      setApplications((prev) => {
+        if (prev.some((a) => a.tenantId === user.id && a.propertyId === propertyId)) {
+          alreadyApplied = true;
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: `app-${Date.now()}`,
+            propertyId,
+            tenantId: user.id,
+            status: "pending",
+            appliedAt: new Date().toISOString(),
+          },
+        ];
+      });
+      // Capture the applicant's current verification state into the shared
+      // pool so the landlord's checklist has something to read immediately.
+      syncOwnProfile();
+      if (alreadyApplied) return { ok: false, message: "You've already applied to this property." };
+      return { ok: true, message: "Application submitted." };
+    },
+    [user, role, syncOwnProfile]
+  );
+
+  const hasAppliedTo = useCallback(
+    (propertyId: string) => {
+      if (!user) return false;
+      return applications.some((a) => a.tenantId === user.id && a.propertyId === propertyId);
+    },
+    [applications, user]
+  );
+
+  const approveApplication = (applicationId: string) => {
+    setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, status: "approved" } : a)));
+  };
+
+  const rejectApplication = (applicationId: string) => {
+    setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, status: "rejected" } : a)));
   };
 
   return (
@@ -254,9 +370,14 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         properties,
         addProperty,
         deleteProperty,
+        updatePropertyCriteria,
         tenants,
+        applications,
         applyToProperty,
-        hasAppliedToLandlord,
+        hasAppliedTo,
+        approveApplication,
+        rejectApplication,
+        syncOwnProfile,
       }}
     >
       {children}

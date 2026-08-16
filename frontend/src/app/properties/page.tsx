@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useProperties, Property } from "@/context/PropertyContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   ShieldCheck,
   BadgeCheck,
@@ -17,10 +19,13 @@ import {
   Sparkles,
   ArrowRight,
   Clock,
+  AlertCircle,
 } from "lucide-react";
 
 export default function PropertiesPage() {
-  const { properties } = useProperties();
+  const router = useRouter();
+  const { properties, applyToProperty, hasAppliedTo } = useProperties();
+  const { user, role } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [maxPrice, setMaxPrice] = useState<number>(6000);
@@ -29,6 +34,7 @@ export default function PropertiesPage() {
   // Application Modal state
   const [isApplying, setIsApplying] = useState(false);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Filter properties based on user controls
   const filteredProperties = properties.filter((p) => {
@@ -42,11 +48,26 @@ export default function PropertiesPage() {
   });
 
   const handleApplyVerification = () => {
+    if (!selectedProperty) return;
+    if (!user) {
+      router.push("/login");
+      return;
+    }
+    if (role !== "tenant") {
+      setApplyError("Only tenant accounts can apply to listings.");
+      return;
+    }
+    setApplyError(null);
     setIsApplying(true);
     setTimeout(() => {
+      const result = applyToProperty(selectedProperty.id);
       setIsApplying(false);
-      setAppliedSuccess(true);
-    }, 1200);
+      if (result.ok) {
+        setAppliedSuccess(true);
+      } else {
+        setApplyError(result.message);
+      }
+    }, 800);
   };
 
   return (
@@ -111,6 +132,7 @@ export default function PropertiesPage() {
               onClick={() => {
                 setSelectedProperty(property);
                 setAppliedSuccess(false);
+                setApplyError(null);
               }}
               className="group cursor-pointer rounded-3xl border border-neutral-200/90 bg-white overflow-hidden airbnb-shadow airbnb-shadow-hover flex flex-col justify-between"
             >
@@ -294,8 +316,14 @@ export default function PropertiesPage() {
               </div>
 
               {/* Application Action CTA */}
-              <div className="pt-4 border-t border-neutral-200">
-                {appliedSuccess ? (
+              <div className="pt-4 border-t border-neutral-200 space-y-2">
+                {applyError && (
+                  <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    {applyError}
+                  </div>
+                )}
+                {appliedSuccess || hasAppliedTo(selectedProperty.id) ? (
                   <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-800 text-sm font-bold animate-in fade-in">
                     <div className="flex items-center gap-2">
                       <CheckCircle2 className="h-5 w-5 text-emerald-600" />
@@ -318,6 +346,12 @@ export default function PropertiesPage() {
                       <>
                         <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         Transmitting Verified Passport…
+                      </>
+                    ) : !user ? (
+                      <>
+                        <Sparkles className="h-5 w-5" />
+                        Log In to Apply
+                        <ArrowRight className="h-5 w-5" />
                       </>
                     ) : (
                       <>

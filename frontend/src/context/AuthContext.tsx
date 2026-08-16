@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { signupUser } from "@/lib/api";
 
 export type UserRole = "tenant" | "landlord";
 
@@ -13,11 +14,7 @@ interface AuthContextType {
   role: UserRole;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null; role: UserRole }>;
-  signUp: (
-    email: string,
-    password: string,
-    role: UserRole
-  ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>;
+  signUp: (email: string, password: string, role: UserRole) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -47,12 +44,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUp: AuthContextType["signUp"] = async (email, password, role) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { role } },
-    });
-    return { error: error?.message ?? null, needsEmailConfirmation: !error && !data.session };
+    // Created server-side (pre-confirmed) via the backend rather than
+    // supabase.auth.signUp() directly — this project's default email sender
+    // is rate-limited to a handful of sends per hour, which made the
+    // confirmation-email flow fail silently for new signups.
+    try {
+      await signupUser(email, password, role);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Sign up failed." };
+    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: error?.message ?? null };
   };
 
   const signOut = async () => {

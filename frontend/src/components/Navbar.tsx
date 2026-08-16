@@ -8,20 +8,27 @@ import { useAuth } from "@/context/AuthContext";
 export function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
 
   const handleSignOut = async () => {
     await signOut();
     router.push("/");
   };
 
-  const navLinks = [
-    { href: "/properties", label: "Properties" },
-    { href: "/tenant-dashboard", label: "My Passport", isTenant: true },
-    { href: "/#how-it-works", label: "How it Works" },
-    { href: "/#trust-security", label: "Trust & Security" },
-    { href: "/dashboard", label: "Landlord Portal", isSpecial: true },
-  ];
+  type NavLink = { href: string; label: string; isSpecial?: boolean; isTenant?: boolean };
+
+  const navLinks: NavLink[] = !user
+    ? [
+        { href: "/properties", label: "Properties" },
+        { href: "/#how-it-works", label: "How it Works" },
+        { href: "/#trust-security", label: "Trust & Security" },
+      ]
+    : role === "landlord"
+    ? [{ href: "/landlord", label: "Landlord Portal", isSpecial: true }]
+    : [
+        { href: "/properties", label: "Properties" },
+        { href: "/tenant-dashboard", label: "My Passport", isTenant: true },
+      ];
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-neutral-100 bg-white/90 backdrop-blur-md transition-all">
@@ -53,13 +60,13 @@ export function Navbar() {
                   isActive
                     ? "bg-white text-neutral-900 shadow-sm font-bold"
                     : link.isSpecial
-                    ? "text-[#FF385C] hover:bg-rose-50/70 font-semibold"
+                    ? "text-blue-700 hover:bg-blue-50/70 font-semibold"
                     : link.isTenant
                     ? "text-emerald-700 hover:bg-emerald-50/70 font-semibold"
                     : "text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70"
                 }`}
               >
-                {link.isSpecial && <Building2 className="h-4 w-4 text-[#FF385C]" />}
+                {link.isSpecial && <Building2 className="h-4 w-4 text-blue-600" />}
                 {link.isTenant && <UserCheck className="h-4 w-4 text-emerald-600" />}
                 {link.label}
               </Link>
@@ -84,6 +91,13 @@ export function Navbar() {
             </>
           ) : (
             <>
+              <Link
+                href="/landlord/login"
+                className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 px-3 py-2 rounded-full hover:bg-blue-50/80 transition-colors"
+              >
+                <Building2 className="h-3.5 w-3.5" />
+                For Landlords
+              </Link>
               <Link
                 href="/login"
                 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-700 hover:text-neutral-900 px-3.5 py-2 rounded-full hover:bg-neutral-100/80 transition-colors"

@@ -3,15 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, Eye, EyeOff, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
+import { Building2, Eye, EyeOff, Lock, Mail, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { useVerification } from "@/context/VerificationContext";
-import { VerificationPromptModal } from "@/components/VerificationPromptModal";
 
-export default function LoginPage() {
+export default function LandlordSignupPage() {
   const router = useRouter();
-  const { signIn, signOut } = useAuth();
-  const { refreshStatus } = useVerification();
+  const { signUp } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,14 +16,13 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setIsLoading(true);
 
-    const { error, role } = await signIn(email, password);
+    const { error } = await signUp(email, password, "landlord");
 
     if (error) {
       setErrorMessage(error);
@@ -34,41 +30,25 @@ export default function LoginPage() {
       return;
     }
 
-    if (role === "landlord") {
-      await signOut();
-      setErrorMessage("This account is registered as a landlord. Use the landlord login instead.");
-      setIsLoading(false);
-      return;
-    }
-
     setIsSuccess(true);
     setIsLoading(false);
-
-    // Tenant: check whether they already have a verified Plaid passport.
-    const { status } = await refreshStatus();
-    if (status === "verified") {
-      router.push("/tenant-dashboard");
-    } else {
-      setShowVerificationPrompt(true);
-    }
+    setTimeout(() => router.push("/landlord"), 1000);
   };
 
   return (
     <div className="flex min-h-[calc(100vh-5rem)] items-center justify-center bg-neutral-50 px-4 py-12 font-sans sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-6">
-        {/* Card Container */}
         <div className="rounded-3xl border border-neutral-200/90 bg-white p-8 sm:p-10 airbnb-shadow relative overflow-hidden">
-          {/* Top Brand Header */}
           <div className="flex flex-col items-center text-center gap-3 mb-8">
-            <Link href="/" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-[#FF385C] to-[#E00B41] text-white shadow-md shadow-[#FF385C]/20 transition-transform hover:scale-105">
-              <ShieldCheck className="h-7 w-7 stroke-[2.2]" />
+            <Link href="/" className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-600 to-blue-800 text-white shadow-md shadow-blue-600/20 transition-transform hover:scale-105">
+              <Building2 className="h-7 w-7 stroke-[2.2]" />
             </Link>
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight text-neutral-900">
-                Welcome back
+                Create a Landlord Account
               </h1>
               <p className="text-sm text-neutral-500 mt-1">
-                Log in to your tenant verification passport
+                List properties, set requirements, and review verified applicants
               </p>
             </div>
           </div>
@@ -78,8 +58,8 @@ export default function LoginPage() {
               <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
                 <CheckCircle2 className="h-10 w-10" />
               </div>
-              <h3 className="text-xl font-bold text-neutral-900">Signed In Successfully</h3>
-              <p className="text-xs text-neutral-500">Redirecting…</p>
+              <h3 className="text-xl font-bold text-neutral-900">Account Created!</h3>
+              <p className="text-xs text-neutral-500">Redirecting to your portal…</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -90,7 +70,6 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {/* Email Field */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-700">
                   Email Address
@@ -104,13 +83,12 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="name@example.com"
-                    className="block w-full rounded-2xl border border-neutral-300 bg-neutral-50/50 pl-10 pr-4 py-3.5 text-sm text-neutral-900 placeholder-neutral-400 font-medium transition-all focus:border-[#FF385C] focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-100"
+                    placeholder="you@yourcompany.com"
+                    className="block w-full rounded-2xl border border-neutral-300 bg-neutral-50/50 pl-10 pr-4 py-3.5 text-sm text-neutral-900 placeholder-neutral-400 font-medium transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"
                   />
                 </div>
               </div>
 
-              {/* Password Field */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-700">
                   Password
@@ -122,10 +100,11 @@ export default function LoginPage() {
                   <input
                     type={showPassword ? "text" : "password"}
                     required
+                    minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="block w-full rounded-2xl border border-neutral-300 bg-neutral-50/50 pl-10 pr-11 py-3.5 text-sm text-neutral-900 placeholder-neutral-400 font-medium transition-all focus:border-[#FF385C] focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-100"
+                    placeholder="At least 6 characters"
+                    className="block w-full rounded-2xl border border-neutral-300 bg-neutral-50/50 pl-10 pr-11 py-3.5 text-sm text-neutral-900 placeholder-neutral-400 font-medium transition-all focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"
                   />
                   <button
                     type="button"
@@ -137,20 +116,19 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={isLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FF385C] to-[#E00B41] py-4 text-sm font-bold text-white shadow-lg shadow-[#FF385C]/25 transition-all hover:shadow-xl hover:shadow-[#FF385C]/35 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-800 py-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-all hover:shadow-xl hover:shadow-blue-600/35 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
               >
                 {isLoading ? (
                   <>
                     <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Signing in…
+                    Creating account…
                   </>
                 ) : (
                   <>
-                    Log in
+                    Create Landlord Account
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -158,32 +136,22 @@ export default function LoginPage() {
             </form>
           )}
 
-          {/* Footer Link */}
           <div className="mt-8 border-t border-neutral-100 pt-6 text-center text-xs text-neutral-500 space-y-2">
             <p>
-              Don&apos;t have an account?{" "}
-              <Link href="/signup" className="font-bold text-[#FF385C] hover:underline">
-                Sign up free
+              Already have a landlord account?{" "}
+              <Link href="/landlord/login" className="font-bold text-blue-700 hover:underline">
+                Log in
               </Link>
             </p>
             <p>
-              Are you a landlord?{" "}
-              <Link href="/landlord/login" className="font-bold text-blue-700 hover:underline">
-                Landlord login
+              Looking to rent?{" "}
+              <Link href="/signup" className="font-bold text-[#FF385C] hover:underline">
+                Tenant sign up
               </Link>
             </p>
           </div>
         </div>
       </div>
-
-      {showVerificationPrompt && (
-        <VerificationPromptModal
-          onSkip={() => {
-            setShowVerificationPrompt(false);
-            router.push("/properties");
-          }}
-        />
-      )}
     </div>
   );
 }

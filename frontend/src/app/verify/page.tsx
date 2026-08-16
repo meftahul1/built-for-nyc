@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { useAuth } from "@/context/AuthContext";
 import { useVerification } from "@/context/VerificationContext";
+import { useProperties } from "@/context/PropertyContext";
 import { ShieldCheck, Loader2, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react";
 
 type Stage = "loading" | "ready" | "linking" | "verifying" | "done" | "exited" | "error";
@@ -14,6 +15,7 @@ export default function VerifyPage() {
   const router = useRouter();
   const { accessToken, loading: authLoading } = useAuth();
   const { getLinkToken, completeLink } = useVerification();
+  const { syncOwnProfile } = useProperties();
 
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("loading");
@@ -59,11 +61,12 @@ export default function VerifyPage() {
       if (!publicToken) return;
       setStage("verifying");
       try {
-        await completeLink(
+        const result = await completeLink(
           publicToken,
           metadata.institution?.institution_id ?? null,
           metadata.institution?.name ?? null
         );
+        syncOwnProfile(result);
         setStage("done");
         setTimeout(() => router.push("/tenant-dashboard"), 1200);
       } catch (err) {
@@ -71,7 +74,7 @@ export default function VerifyPage() {
         setStage("error");
       }
     },
-    [completeLink, router]
+    [completeLink, router, syncOwnProfile]
   );
 
   const onExit = useCallback(() => {

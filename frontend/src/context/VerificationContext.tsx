@@ -19,16 +19,21 @@ function deriveStatus(result: VerifyStatusResponse | null): VerificationStatus {
   return "processing";
 }
 
+export interface VerificationResult {
+  status: VerificationStatus;
+  data: VerifyStatusResponse | null;
+}
+
 interface VerificationContextType {
   status: VerificationStatus;
   data: VerifyStatusResponse | null;
-  refreshStatus: () => Promise<VerificationStatus>;
+  refreshStatus: () => Promise<VerificationResult>;
   getLinkToken: () => Promise<string>;
   completeLink: (
     publicToken: string,
     institutionId: string | null,
     institutionName: string | null
-  ) => Promise<VerificationStatus>;
+  ) => Promise<VerificationResult>;
 }
 
 const VerificationContext = createContext<VerificationContextType | undefined>(undefined);
@@ -38,20 +43,20 @@ export const VerificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [status, setStatus] = useState<VerificationStatus>("unknown");
   const [data, setData] = useState<VerifyStatusResponse | null>(null);
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = useCallback(async (): Promise<VerificationResult> => {
     if (!accessToken) {
       setStatus("unknown");
-      return "unknown" as VerificationStatus;
+      return { status: "unknown", data: null };
     }
     try {
       const result = await getVerificationStatus(accessToken);
       setData(result);
       const next = deriveStatus(result);
       setStatus(next);
-      return next;
+      return { status: next, data: result };
     } catch {
       setStatus("unverified");
-      return "unverified" as VerificationStatus;
+      return { status: "unverified", data: null };
     }
   }, [accessToken]);
 
@@ -62,7 +67,7 @@ export const VerificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [accessToken]);
 
   const completeLink = useCallback(
-    async (publicToken: string, institutionId: string | null, institutionName: string | null) => {
+    async (publicToken: string, institutionId: string | null, institutionName: string | null): Promise<VerificationResult> => {
       if (!accessToken) throw new Error("You must be logged in to verify.");
       await exchangePublicToken(accessToken, {
         public_token: publicToken,
@@ -70,14 +75,15 @@ export const VerificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         institution_name: institutionName,
       });
       const result = await runVerification(accessToken);
-      setData((prev) => ({
-        item: prev?.item ?? { id: "", institution_name: institutionName, status: "linked", created_at: new Date().toISOString() },
+      const nextData: VerifyStatusResponse = {
+        item: { id: "", institution_name: institutionName, status: "linked", created_at: new Date().toISOString() },
         balances: result.balances,
         income: result.income,
-      }));
+      };
+      setData((prev) => ({ ...nextData, item: prev?.item ?? nextData.item }));
       const next: VerificationStatus = result.income.status === "success" ? "verified" : "processing";
       setStatus(next);
-      return next;
+      return { status: next, data: nextData };
     },
     [accessToken]
   );
