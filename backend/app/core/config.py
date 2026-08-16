@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_anon_key: str
     supabase_service_role_key: str
-    supabase_jwt_secret: str
+
+    plaid_client_id: str
+    plaid_secret: str
+    plaid_env: str = "sandbox"  # sandbox | production
 
     @property
     def cors_origin_list(self) -> list[str]:

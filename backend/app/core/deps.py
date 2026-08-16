@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -5,6 +7,14 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import get_settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+@lru_cache
+def get_jwk_client() -> jwt.PyJWKClient:
+    """Supabase signs access tokens with a project-specific asymmetric key
+    (ES256) exposed via its JWKS endpoint — not the legacy shared secret."""
+    settings = get_settings()
+    return jwt.PyJWKClient(f"{settings.supabase_url}/auth/v1/.well-known/jwks.json")
 
 
 async def get_current_user(
@@ -17,12 +27,12 @@ async def get_current_user(
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
 
-    settings = get_settings()
     try:
+        signing_key = get_jwk_client().get_signing_key_from_jwt(credentials.credentials)
         payload = jwt.decode(
             credentials.credentials,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["ES256"],
             audience="authenticated",
         )
     except jwt.PyJWTError as exc:
