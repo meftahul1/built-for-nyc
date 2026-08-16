@@ -97,3 +97,77 @@ export async function signupUser(email: string, password: string, role: SignupRo
   }
   return res.json() as Promise<SignupResponse>;
 }
+
+export type TenantCriteriaDto = {
+  minIncomeMultiplier: number;
+  minCreditScore: number;
+  requireIncomeVerification: boolean;
+  requireIdentityVerification: boolean;
+  requireBackgroundCheck: boolean;
+  petsAllowed: boolean;
+  notes: string;
+};
+
+export type PropertyRecord = {
+  id: string;
+  landlordId: string;
+  title: string;
+  address: string;
+  city: string;
+  state: string;
+  price: number;
+  bedrooms: number;
+  bathrooms: number;
+  sqft: number;
+  description: string;
+  imageUrl: string;
+  landlordName: string;
+  landlordAvatar: string;
+  landlordRating: number;
+  landlordResponseTime: string;
+  verifiedStatus: string;
+  verifiedFeatures: string[];
+  criteria: TenantCriteriaDto;
+  createdAt: string;
+};
+
+export type PropertyCreateBody = {
+  title: string;
+  address: string;
+  city: string;
+  state: string;
+  price: number;
+  bedrooms: number;
+  bathrooms: number;
+  sqft: number;
+  description: string;
+  imageUrl: string;
+  criteria: TenantCriteriaDto;
+};
+
+export async function listProperties() {
+  const res = await fetch(`${API_BASE_URL}/properties`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `/properties failed (${res.status})`);
+  }
+  return res.json() as Promise<PropertyRecord[]>;
+}
+
+export function createProperty(accessToken: string, body: PropertyCreateBody) {
+  return request<PropertyRecord>("/properties", accessToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updatePropertyCriteria(accessToken: string, propertyId: string, criteria: TenantCriteriaDto) {
+  return request<PropertyRecord>(`/properties/${propertyId}`, accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ criteria }),
+  });
+}
+
+export function deletePropertyRecord(accessToken: string, propertyId: string) {
+  return request<{ status: string }>(`/properties/${propertyId}`, accessToken, { method: "DELETE" });
+}

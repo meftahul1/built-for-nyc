@@ -33,6 +33,8 @@ import {
   XCircle,
   Clock3,
   SlidersHorizontal,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 function StatusPill({ status }: { status: ChecklistStatus }) {
@@ -73,6 +75,8 @@ export default function LandlordPortal() {
   const { user, role, loading: authLoading } = useAuth();
   const {
     properties,
+    propertiesLoading,
+    propertiesError,
     addProperty,
     deleteProperty,
     updatePropertyCriteria,
@@ -99,6 +103,12 @@ export default function LandlordPortal() {
   const [criteriaDraft, setCriteriaDraft] = useState<TenantCriteria>(DEFAULT_CRITERIA);
   const [expandedApplicationId, setExpandedApplicationId] = useState<string | null>(null);
   const [applicantFilter, setApplicantFilter] = useState<"all" | Application["status"]>("all");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [isSubmittingAdd, setIsSubmittingAdd] = useState(false);
+  const [criteriaError, setCriteriaError] = useState<string | null>(null);
+  const [isSavingCriteria, setIsSavingCriteria] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Add Property form state
   const [title, setTitle] = useState("");
@@ -113,7 +123,7 @@ export default function LandlordPortal() {
   const [imageUrl, setImageUrl] = useState("");
   const [newCriteria, setNewCriteria] = useState<TenantCriteria>(DEFAULT_CRITERIA);
 
-  const landlordProperties = properties.filter((p) => p.isLandlordProperty);
+  const landlordProperties = properties.filter((p) => p.landlordId === user?.id);
   const landlordPropertyIds = useMemo(() => new Set(landlordProperties.map((p) => p.id)), [landlordProperties]);
   const landlordApplications = applications.filter((a) => landlordPropertyIds.has(a.propertyId));
   const visibleApplications =
@@ -122,9 +132,11 @@ export default function LandlordPortal() {
 
   const propertyById = (id: string) => properties.find((p) => p.id === id);
 
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    addProperty(
+    setAddError(null);
+    setIsSubmittingAdd(true);
+    const result = await addProperty(
       {
         title: title || "New Verified Residence",
         address: address || "150 Greene St",
@@ -139,6 +151,11 @@ export default function LandlordPortal() {
       },
       newCriteria
     );
+    setIsSubmittingAdd(false);
+    if (!result.ok) {
+      setAddError(result.message);
+      return;
+    }
     setTitle("");
     setAddress("");
     setDescription("");
@@ -148,13 +165,30 @@ export default function LandlordPortal() {
   };
 
   const openCriteriaEditor = (property: Property) => {
+    setCriteriaError(null);
     setCriteriaEditPropertyId(property.id);
     setCriteriaDraft(property.criteria);
   };
 
-  const saveCriteriaEdit = () => {
-    if (criteriaEditPropertyId) updatePropertyCriteria(criteriaEditPropertyId, criteriaDraft);
+  const saveCriteriaEdit = async () => {
+    if (!criteriaEditPropertyId) return;
+    setCriteriaError(null);
+    setIsSavingCriteria(true);
+    const result = await updatePropertyCriteria(criteriaEditPropertyId, criteriaDraft);
+    setIsSavingCriteria(false);
+    if (!result.ok) {
+      setCriteriaError(result.message);
+      return;
+    }
     setCriteriaEditPropertyId(null);
+  };
+
+  const handleDelete = async (propertyId: string) => {
+    setDeleteError(null);
+    setDeletingId(propertyId);
+    const result = await deleteProperty(propertyId);
+    setDeletingId(null);
+    if (!result.ok) setDeleteError(result.message);
   };
 
   if (authLoading || !user || role !== "landlord") {
@@ -262,7 +296,24 @@ export default function LandlordPortal() {
         {/* TAB 1: PROPERTIES */}
         {activeTab === "properties" && (
           <div className="space-y-4">
-            {landlordProperties.length === 0 ? (
+            {deleteError && (
+              <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {deleteError}
+              </div>
+            )}
+            {propertiesError && (
+              <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {propertiesError}
+              </div>
+            )}
+            {propertiesLoading ? (
+              <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-12 text-center flex items-center justify-center gap-2 text-sm text-neutral-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading your properties…
+              </div>
+            ) : landlordProperties.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-12 text-center flex flex-col items-center justify-center gap-4">
                 <div className="h-16 w-16 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
                   <Building2 className="h-8 w-8" />
@@ -343,11 +394,16 @@ export default function LandlordPortal() {
                           Tenant Requirements
                         </button>
                         <button
-                          onClick={() => deleteProperty(property.id)}
-                          className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-3 py-2 rounded-xl transition-colors mt-3"
+                          onClick={() => handleDelete(property.id)}
+                          disabled={deletingId === property.id}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-3 py-2 rounded-xl transition-colors mt-3 disabled:opacity-50"
                           title="Delete Property"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {deletingId === property.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       </div>
                     </div>
@@ -614,12 +670,29 @@ export default function LandlordPortal() {
                 <TenantCriteriaFields value={newCriteria} onChange={setNewCriteria} />
               </div>
 
+              {addError && (
+                <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  {addError}
+                </div>
+              )}
+
               <button
                 type="submit"
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-all hover:shadow-xl hover:-translate-y-0.5"
+                disabled={isSubmittingAdd}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition-all hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50"
               >
-                <Plus className="h-5 w-5" />
-                Publish Property
+                {isSubmittingAdd ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Publishing…
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-5 w-5" />
+                    Publish Property
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -644,12 +717,28 @@ export default function LandlordPortal() {
               <p className="text-xs text-neutral-500 mt-1">{propertyById(criteriaEditPropertyId)?.title}</p>
             </div>
             <TenantCriteriaFields value={criteriaDraft} onChange={setCriteriaDraft} />
+            {criteriaError && (
+              <div className="mt-4 flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {criteriaError}
+              </div>
+            )}
             <button
               onClick={saveCriteriaEdit}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all"
+              disabled={isSavingCriteria}
+              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-sm font-bold text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50"
             >
-              <Sparkles className="h-4 w-4" />
-              Save Requirements
+              {isSavingCriteria ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Save Requirements
+                </>
+              )}
             </button>
           </div>
         </div>

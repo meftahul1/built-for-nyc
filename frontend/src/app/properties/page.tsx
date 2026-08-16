@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProperties, Property } from "@/context/PropertyContext";
 import { useAuth } from "@/context/AuthContext";
+import { InitialsAvatar } from "@/components/InitialsAvatar";
 import {
   ShieldCheck,
   BadgeCheck,
@@ -20,11 +21,12 @@ import {
   ArrowRight,
   Clock,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 export default function PropertiesPage() {
   const router = useRouter();
-  const { properties, applyToProperty, hasAppliedTo } = useProperties();
+  const { properties, propertiesLoading, applyToProperty, hasAppliedTo } = useProperties();
   const { user, role } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -124,7 +126,16 @@ export default function PropertiesPage() {
           </p>
         </div>
 
-        {/* Responsive Grid: 1 col on mobile, 2 col on tablet, 3 col on desktop */}
+        {propertiesLoading ? (
+          <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-16 text-center flex items-center justify-center gap-2 text-sm text-neutral-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading verified listings…
+          </div>
+        ) : filteredProperties.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-16 text-center text-sm text-neutral-500">
+            No properties match yet. Check back soon, or adjust your filters.
+          </div>
+        ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredProperties.map((property) => (
             <div
@@ -189,11 +200,15 @@ export default function PropertiesPage() {
                 {/* Landlord Trust Badge */}
                 <div className="flex items-center justify-between text-xs pt-1">
                   <div className="flex items-center gap-2">
-                    <img
-                      src={property.landlordAvatar}
-                      alt={property.landlordName}
-                      className="h-7 w-7 rounded-full object-cover border border-neutral-200"
-                    />
+                    {property.landlordAvatar ? (
+                      <img
+                        src={property.landlordAvatar}
+                        alt={property.landlordName}
+                        className="h-7 w-7 rounded-full object-cover border border-neutral-200"
+                      />
+                    ) : (
+                      <InitialsAvatar name={property.landlordName} className="h-7 w-7 text-[10px]" />
+                    )}
                     <span className="font-semibold text-neutral-700">{property.landlordName}</span>
                   </div>
                   <span className="flex items-center gap-1 text-amber-600 font-bold">
@@ -205,6 +220,7 @@ export default function PropertiesPage() {
             </div>
           ))}
         </div>
+        )}
       </main>
 
       {/* PROPERTY DETAIL MODAL */}
@@ -294,11 +310,15 @@ export default function PropertiesPage() {
               {/* Landlord Card */}
               <div className="flex items-center justify-between rounded-2xl border border-neutral-200 p-4 bg-white mt-4">
                 <div className="flex items-center gap-3">
-                  <img
-                    src={selectedProperty.landlordAvatar}
-                    alt={selectedProperty.landlordName}
-                    className="h-12 w-12 rounded-full object-cover border-2 border-rose-100"
-                  />
+                  {selectedProperty.landlordAvatar ? (
+                    <img
+                      src={selectedProperty.landlordAvatar}
+                      alt={selectedProperty.landlordName}
+                      className="h-12 w-12 rounded-full object-cover border-2 border-rose-100"
+                    />
+                  ) : (
+                    <InitialsAvatar name={selectedProperty.landlordName} className="h-12 w-12 text-sm border-2 border-rose-100" />
+                  )}
                   <div>
                     <p className="font-extrabold text-neutral-900 text-sm">{selectedProperty.landlordName}</p>
                     <p className="text-xs text-neutral-500 flex items-center gap-2 mt-0.5">

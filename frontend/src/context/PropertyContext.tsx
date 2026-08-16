@@ -1,8 +1,15 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useVerification, VerificationResult } from "@/context/VerificationContext";
+import {
+  listProperties,
+  createProperty as apiCreateProperty,
+  updatePropertyCriteria as apiUpdatePropertyCriteria,
+  deletePropertyRecord,
+  PropertyRecord,
+} from "@/lib/api";
 
 export interface TenantCriteria {
   minIncomeMultiplier: number; // e.g. 3 = tenant must earn 3x the monthly rent
@@ -24,28 +31,9 @@ export const DEFAULT_CRITERIA: TenantCriteria = {
   notes: "",
 };
 
-export interface Property {
-  id: string;
-  title: string;
-  address: string;
-  city: string;
-  state: string;
-  price: number;
-  bedrooms: number;
-  bathrooms: number;
-  sqft: number;
-  description: string;
-  imageUrl: string;
-  additionalImages?: string[];
-  verifiedStatus: "verified" | "pending" | "unverified";
-  landlordName: string;
-  landlordAvatar: string;
-  landlordRating: number;
-  landlordResponseTime: string;
-  verifiedFeatures: string[];
-  isLandlordProperty?: boolean;
-  criteria: TenantCriteria;
-}
+// Property is the persisted shape returned by the backend (`properties`
+// table in Supabase) — every listing here is a real row, not local state.
+export type Property = PropertyRecord;
 
 export interface BankAccount {
   id: string;
@@ -91,75 +79,12 @@ export interface Application {
   appliedAt: string;
 }
 
-const INITIAL_PROPERTIES: Property[] = [
-  {
-    id: "prop-1",
-    title: "The Glass House Loft & Terrace",
-    address: "248 Mercer St, Soho",
-    city: "New York",
-    state: "NY",
-    price: 4200,
-    bedrooms: 2,
-    bathrooms: 2,
-    sqft: 1150,
-    description: "Sun-drenched Soho loft featuring 11ft ceilings, floor-to-ceiling double-glazed windows, private elevator access, and a lush private roof terrace with skyline views.",
-    imageUrl: "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=1200&q=80",
-    verifiedStatus: "verified",
-    landlordName: "Sarah Jenkins",
-    landlordAvatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80",
-    landlordRating: 4.96,
-    landlordResponseTime: "under 1 hour",
-    verifiedFeatures: ["Income Verified", "Instant Plaid Check", "Clean Ownership Records", "Zero Eviction History"],
-    isLandlordProperty: true,
-    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 3, minCreditScore: 680, notes: "No smoking. Renters insurance required at move-in." },
-  },
-  {
-    id: "prop-2",
-    title: "Minimalist Modern Townhouse",
-    address: "112 Perry Street, West Village",
-    city: "New York",
-    state: "NY",
-    price: 5800,
-    bedrooms: 3,
-    bathrooms: 2.5,
-    sqft: 1650,
-    description: "Historic West Village brownstone floor-through with modern chef's kitchen, exposed brick hearth, central HVAC, and serene garden view.",
-    imageUrl: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80",
-    verifiedStatus: "verified",
-    landlordName: "Marcus Sterling",
-    landlordAvatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
-    landlordRating: 4.92,
-    landlordResponseTime: "within a few hours",
-    verifiedFeatures: ["Deed Verified", "Income Pre-Screened", "Background Verified"],
-    isLandlordProperty: false,
-    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 2.5, minCreditScore: 620, petsAllowed: true, requireBackgroundCheck: false },
-  },
-  {
-    id: "prop-3",
-    title: "Waterfront Architectural Haven",
-    address: "88 N 6th St, Williamsburg",
-    city: "Brooklyn",
-    state: "NY",
-    price: 3650,
-    bedrooms: 1,
-    bathrooms: 1,
-    sqft: 820,
-    description: "Sleek industrial penthouse with custom oak cabinetry, smart lighting system, in-unit washer/dryer, and full building concierge amenities.",
-    imageUrl: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=1200&q=80",
-    verifiedStatus: "verified",
-    landlordName: "Elena Rostova",
-    landlordAvatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80",
-    landlordRating: 5.0,
-    landlordResponseTime: "under 15 minutes",
-    verifiedFeatures: ["Plaid Bank Income Sync", "ID Verified", "Rental Ledger Cleared"],
-    isLandlordProperty: true,
-    criteria: { ...DEFAULT_CRITERIA, minIncomeMultiplier: 3, minCreditScore: 700 },
-  },
-];
-
-// Seed applicant fixtures so the landlord Applicants tab has demo content
-// before any real tenant has applied. Real tenants get their own profile
-// (keyed by their Supabase user id) created the moment they apply.
+// Seed applicant fixtures so the landlord Applicants tab has demo content.
+// Real tenants get their own profile (keyed by their Supabase user id)
+// created the moment they apply — see syncOwnProfile below. These seed
+// applications point at whatever the first two listed properties are, so
+// they stay meaningful once properties come from the database instead of
+// hardcoded mock IDs.
 const SEED_TENANTS: Record<string, TenantProfile> = {
   "demo-tenant-jordan": {
     id: "demo-tenant-jordan",
@@ -205,12 +130,6 @@ const SEED_TENANTS: Record<string, TenantProfile> = {
   },
 };
 
-const SEED_APPLICATIONS: Application[] = [
-  { id: "app-seed-1", propertyId: "prop-1", tenantId: "demo-tenant-priya", status: "approved", appliedAt: "2026-08-01T10:00:00Z" },
-  { id: "app-seed-2", propertyId: "prop-1", tenantId: "demo-tenant-jordan", status: "pending", appliedAt: "2026-08-10T14:30:00Z" },
-  { id: "app-seed-3", propertyId: "prop-3", tenantId: "demo-tenant-casey", status: "pending", appliedAt: "2026-08-12T09:15:00Z" },
-];
-
 function nameFromEmail(email: string): string {
   const local = email.split("@")[0] ?? "Tenant";
   return local
@@ -222,12 +141,26 @@ function nameFromEmail(email: string): string {
 
 interface PropertyContextType {
   properties: Property[];
+  propertiesLoading: boolean;
+  propertiesError: string | null;
+  refreshProperties: () => void;
   addProperty: (
-    newProp: Omit<Property, "id" | "verifiedStatus" | "landlordName" | "landlordAvatar" | "landlordRating" | "landlordResponseTime" | "verifiedFeatures" | "isLandlordProperty" | "criteria">,
+    newProp: {
+      title: string;
+      address: string;
+      city: string;
+      state: string;
+      price: number;
+      bedrooms: number;
+      bathrooms: number;
+      sqft: number;
+      description: string;
+      imageUrl: string;
+    },
     criteria: TenantCriteria
-  ) => void;
-  deleteProperty: (id: string) => void;
-  updatePropertyCriteria: (id: string, criteria: TenantCriteria) => void;
+  ) => Promise<{ ok: boolean; message: string }>;
+  deleteProperty: (id: string) => Promise<{ ok: boolean; message: string }>;
+  updatePropertyCriteria: (id: string, criteria: TenantCriteria) => Promise<{ ok: boolean; message: string }>;
   tenants: Record<string, TenantProfile>;
   applications: Application[];
   applyToProperty: (propertyId: string) => { ok: boolean; message: string };
@@ -247,12 +180,59 @@ interface PropertyContextType {
 const PropertyContext = createContext<PropertyContextType | undefined>(undefined);
 
 export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, role } = useAuth();
+  const { user, role, accessToken } = useAuth();
   const { status: verificationStatus, data: verificationData } = useVerification();
 
-  const [properties, setProperties] = useState<Property[]>(INITIAL_PROPERTIES);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
+  const [propertiesError, setPropertiesError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
   const [tenants, setTenants] = useState<Record<string, TenantProfile>>(SEED_TENANTS);
-  const [applications, setApplications] = useState<Application[]>(SEED_APPLICATIONS);
+  const [applications, setApplications] = useState<Application[]>([]);
+
+  // Properties are the shared, persisted marketplace — fetched once on
+  // mount (and whenever refreshProperties() bumps reloadTick) regardless of
+  // auth state, since the listing endpoint is public.
+  useEffect(() => {
+    let ignore = false;
+    listProperties()
+      .then((rows) => {
+        if (ignore) return;
+        setProperties(rows);
+        setPropertiesError(null);
+        // Seed the demo applicants against whichever two listings exist so
+        // the Applicants tab has content even before a real tenant applies.
+        if (rows.length > 0) {
+          setApplications((prev) => {
+            if (prev.length > 0) return prev;
+            const [first, second] = rows;
+            const seeded: Application[] = [
+              { id: "app-seed-1", propertyId: first.id, tenantId: "demo-tenant-priya", status: "approved", appliedAt: "2026-08-01T10:00:00Z" },
+              { id: "app-seed-2", propertyId: first.id, tenantId: "demo-tenant-jordan", status: "pending", appliedAt: "2026-08-10T14:30:00Z" },
+            ];
+            if (second) {
+              seeded.push({ id: "app-seed-3", propertyId: second.id, tenantId: "demo-tenant-casey", status: "pending", appliedAt: "2026-08-12T09:15:00Z" });
+            }
+            return seeded;
+          });
+        }
+      })
+      .catch((err) => {
+        if (ignore) return;
+        setPropertiesError(err instanceof Error ? err.message : "Could not load properties.");
+      })
+      .finally(() => {
+        if (!ignore) setPropertiesLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [reloadTick]);
+
+  const refreshProperties = useCallback(() => {
+    setPropertiesLoading(true);
+    setReloadTick((n) => n + 1);
+  }, []);
 
   const syncOwnProfile = useCallback(
     (override?: VerificationResult) => {
@@ -292,30 +272,50 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [user, role, verificationStatus, verificationData]
   );
 
-  const addProperty: PropertyContextType["addProperty"] = (newProp, criteria) => {
-    const created: Property = {
-      ...newProp,
-      id: `prop-${Date.now()}`,
-      verifiedStatus: "verified",
-      landlordName: "You",
-      landlordAvatar: "",
-      landlordRating: 5.0,
-      landlordResponseTime: "Instant",
-      verifiedFeatures: ["Income Verified", "Plaid Bank Sync", "Owner Document Verified"],
-      isLandlordProperty: true,
-      criteria,
-    };
-    setProperties((prev) => [created, ...prev]);
-  };
+  const addProperty: PropertyContextType["addProperty"] = useCallback(
+    async (newProp, criteria) => {
+      if (!accessToken || role !== "landlord") {
+        return { ok: false, message: "You must be logged in as a landlord to list a property." };
+      }
+      try {
+        const created = await apiCreateProperty(accessToken, { ...newProp, criteria });
+        setProperties((prev) => [created, ...prev]);
+        return { ok: true, message: "Property listed." };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not create property." };
+      }
+    },
+    [accessToken, role]
+  );
 
-  const deleteProperty = (id: string) => {
-    setProperties((prev) => prev.filter((p) => p.id !== id));
-    setApplications((prev) => prev.filter((a) => a.propertyId !== id));
-  };
+  const deleteProperty: PropertyContextType["deleteProperty"] = useCallback(
+    async (id) => {
+      if (!accessToken) return { ok: false, message: "You must be logged in." };
+      try {
+        await deletePropertyRecord(accessToken, id);
+        setProperties((prev) => prev.filter((p) => p.id !== id));
+        setApplications((prev) => prev.filter((a) => a.propertyId !== id));
+        return { ok: true, message: "Property removed." };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not delete property." };
+      }
+    },
+    [accessToken]
+  );
 
-  const updatePropertyCriteria = (id: string, criteria: TenantCriteria) => {
-    setProperties((prev) => prev.map((p) => (p.id === id ? { ...p, criteria } : p)));
-  };
+  const updatePropertyCriteria: PropertyContextType["updatePropertyCriteria"] = useCallback(
+    async (id, criteria) => {
+      if (!accessToken) return { ok: false, message: "You must be logged in." };
+      try {
+        const updated = await apiUpdatePropertyCriteria(accessToken, id, criteria);
+        setProperties((prev) => prev.map((p) => (p.id === id ? updated : p)));
+        return { ok: true, message: "Requirements saved." };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not save requirements." };
+      }
+    },
+    [accessToken]
+  );
 
   const applyToProperty = useCallback(
     (propertyId: string): { ok: boolean; message: string } => {
@@ -368,6 +368,9 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <PropertyContext.Provider
       value={{
         properties,
+        propertiesLoading,
+        propertiesError,
+        refreshProperties,
         addProperty,
         deleteProperty,
         updatePropertyCriteria,
