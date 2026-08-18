@@ -14,6 +14,12 @@ see a verified result instead of self-reported documents.
 - **Auth & data** are handled by Supabase Auth; the FastAPI
   backend verifies Supabase-issued JWTs and talks to Plaid server-side.
 
+## Demo
+
+<video src="./demo/middleMan.mov" controls width="100%"></video>
+
+*If the video player does not render in your browser, you can view the video file directly at [demo/middleMan.mov](./demo/middleMan.mov).*
+
 ## Stack
 
 | Layer    | Tech                                                        |
