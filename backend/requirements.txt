@@ -7,3 +7,4 @@ python-dotenv==1.2.2
 pyjwt==2.13.0
 cryptography==50.0.0
 plaid-python==42.0.0
+stripe==15.5.0

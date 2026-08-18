@@ -61,15 +61,14 @@ export default function PropertiesPage() {
     }
     setApplyError(null);
     setIsApplying(true);
-    setTimeout(() => {
-      const result = applyToProperty(selectedProperty.id);
+    applyToProperty(selectedProperty.id).then((result) => {
       setIsApplying(false);
       if (result.ok) {
         setAppliedSuccess(true);
       } else {
         setApplyError(result.message);
       }
-    }, 800);
+    });
   };
 
   return (

@@ -4,6 +4,7 @@ import "./globals.css";
 import { PropertyProvider } from "@/context/PropertyContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { VerificationProvider } from "@/context/VerificationContext";
+import { IdentityProvider } from "@/context/IdentityContext";
 import { Navbar } from "@/components/Navbar";
 import { Footer } from "@/components/Footer";
 
@@ -28,11 +29,13 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col font-sans bg-neutral-50 text-neutral-900 selection:bg-rose-100 selection:text-[#FF385C]">
         <AuthProvider>
           <VerificationProvider>
-            <PropertyProvider>
-              <Navbar />
-              <div className="flex-1">{children}</div>
-              <Footer />
-            </PropertyProvider>
+            <IdentityProvider>
+              <PropertyProvider>
+                <Navbar />
+                <div className="flex-1">{children}</div>
+                <Footer />
+              </PropertyProvider>
+            </IdentityProvider>
           </VerificationProvider>
         </AuthProvider>
       </body>

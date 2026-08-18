@@ -3,12 +3,19 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useVerification, VerificationResult } from "@/context/VerificationContext";
+import { useIdentity, IdentityResult } from "@/context/IdentityContext";
 import {
   listProperties,
   createProperty as apiCreateProperty,
   updatePropertyCriteria as apiUpdatePropertyCriteria,
   deletePropertyRecord,
+  applyToPropertyApi,
+  getMyApplications,
+  getLandlordApplications,
+  updateApplicationStatus as apiUpdateApplicationStatus,
   PropertyRecord,
+  ApplicationRecord,
+  TenantProfileDto,
 } from "@/lib/api";
 
 export interface TenantCriteria {
@@ -79,57 +86,6 @@ export interface Application {
   appliedAt: string;
 }
 
-// Seed applicant fixtures so the landlord Applicants tab has demo content.
-// Real tenants get their own profile (keyed by their Supabase user id)
-// created the moment they apply — see syncOwnProfile below. These seed
-// applications point at whatever the first two listed properties are, so
-// they stay meaningful once properties come from the database instead of
-// hardcoded mock IDs.
-const SEED_TENANTS: Record<string, TenantProfile> = {
-  "demo-tenant-jordan": {
-    id: "demo-tenant-jordan",
-    name: "Jordan Vance",
-    email: "jordan.vance@example.com",
-    identityStatus: "verified",
-    identityDetails: "CA State Passport (Verified)",
-    monthlyVerifiedIncome: 11200,
-    annualVerifiedIncome: 134400,
-    creditScore: 780,
-    creditTier: "Tier 1 Excellent",
-    creditUtilization: 8,
-    bankAccounts: [],
-    transactions: [],
-  },
-  "demo-tenant-priya": {
-    id: "demo-tenant-priya",
-    name: "Priya Anand",
-    email: "priya.anand@example.com",
-    identityStatus: "verified",
-    identityDetails: "NY Driver License (Verified)",
-    monthlyVerifiedIncome: 9450,
-    annualVerifiedIncome: 113400,
-    creditScore: 765,
-    creditTier: "Tier 1 Excellent",
-    creditUtilization: 12,
-    bankAccounts: [],
-    transactions: [],
-  },
-  "demo-tenant-casey": {
-    id: "demo-tenant-casey",
-    name: "Casey Morgan",
-    email: "casey.morgan@example.com",
-    identityStatus: "pending",
-    identityDetails: "Bank connection not yet completed",
-    monthlyVerifiedIncome: 0,
-    annualVerifiedIncome: 0,
-    creditScore: 0,
-    creditTier: "Not Available",
-    creditUtilization: 0,
-    bankAccounts: [],
-    transactions: [],
-  },
-};
-
 function nameFromEmail(email: string): string {
   const local = email.split("@")[0] ?? "Tenant";
   return local
@@ -137,6 +93,10 @@ function nameFromEmail(email: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function mapApplication(a: ApplicationRecord): Application {
+  return { id: a.id, propertyId: a.propertyId, tenantId: a.tenantId, status: a.status, appliedAt: a.appliedAt };
 }
 
 interface PropertyContextType {
@@ -163,18 +123,20 @@ interface PropertyContextType {
   updatePropertyCriteria: (id: string, criteria: TenantCriteria) => Promise<{ ok: boolean; message: string }>;
   tenants: Record<string, TenantProfile>;
   applications: Application[];
-  applyToProperty: (propertyId: string) => { ok: boolean; message: string };
+  applicationsLoading: boolean;
+  applyToProperty: (propertyId: string) => Promise<{ ok: boolean; message: string }>;
   hasAppliedTo: (propertyId: string) => boolean;
-  approveApplication: (applicationId: string) => void;
-  rejectApplication: (applicationId: string) => void;
-  /** Snapshots the current tenant's Plaid verification state into the shared
-   * applicant pool a landlord's checklist reads from. Call this after any
-   * action that can change verification status — applying, or finishing
-   * Plaid Link. Pass `override` when calling right after an awaited
+  approveApplication: (applicationId: string) => Promise<{ ok: boolean; message: string }>;
+  rejectApplication: (applicationId: string) => Promise<{ ok: boolean; message: string }>;
+  /** Snapshots the current tenant's Plaid income and Stripe Identity
+   * verification state into the shared applicant pool a landlord's checklist
+   * reads from. Call this after any action that can change verification
+   * status — applying, finishing Plaid Link, or returning from Stripe
+   * Identity. Pass `overrides` when calling right after an awaited
    * verification call (e.g. `refreshStatus()`/`completeLink()`) so the write
    * uses that call's actual result instead of a context closure that may not
    * have re-rendered yet. */
-  syncOwnProfile: (override?: VerificationResult) => void;
+  syncOwnProfile: (overrides?: { verification?: VerificationResult; identity?: IdentityResult }) => void;
 }
 
 const PropertyContext = createContext<PropertyContextType | undefined>(undefined);
@@ -182,13 +144,15 @@ const PropertyContext = createContext<PropertyContextType | undefined>(undefined
 export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, role, accessToken } = useAuth();
   const { status: verificationStatus, data: verificationData } = useVerification();
+  const { status: identityStatus, data: identityData } = useIdentity();
 
   const [properties, setProperties] = useState<Property[]>([]);
   const [propertiesLoading, setPropertiesLoading] = useState(true);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
-  const [tenants, setTenants] = useState<Record<string, TenantProfile>>(SEED_TENANTS);
+  const [tenants, setTenants] = useState<Record<string, TenantProfile>>({});
   const [applications, setApplications] = useState<Application[]>([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
 
   // Properties are the shared, persisted marketplace — fetched once on
   // mount (and whenever refreshProperties() bumps reloadTick) regardless of
@@ -200,22 +164,6 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (ignore) return;
         setProperties(rows);
         setPropertiesError(null);
-        // Seed the demo applicants against whichever two listings exist so
-        // the Applicants tab has content even before a real tenant applies.
-        if (rows.length > 0) {
-          setApplications((prev) => {
-            if (prev.length > 0) return prev;
-            const [first, second] = rows;
-            const seeded: Application[] = [
-              { id: "app-seed-1", propertyId: first.id, tenantId: "demo-tenant-priya", status: "approved", appliedAt: "2026-08-01T10:00:00Z" },
-              { id: "app-seed-2", propertyId: first.id, tenantId: "demo-tenant-jordan", status: "pending", appliedAt: "2026-08-10T14:30:00Z" },
-            ];
-            if (second) {
-              seeded.push({ id: "app-seed-3", propertyId: second.id, tenantId: "demo-tenant-casey", status: "pending", appliedAt: "2026-08-12T09:15:00Z" });
-            }
-            return seeded;
-          });
-        }
       })
       .catch((err) => {
         if (ignore) return;
@@ -234,20 +182,81 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setReloadTick((n) => n + 1);
   }, []);
 
+  // Applications are persisted server-side (`rental_applications`) — a
+  // tenant sees their own, a landlord sees every applicant across their
+  // properties (with each applicant's verification summary attached). This
+  // is what survives a page refresh, unlike the old client-only demo state.
+  useEffect(() => {
+    let ignore = false;
+
+    type FetchResult = { applications: Application[]; tenants?: Record<string, TenantProfileDto> };
+
+    Promise.resolve()
+      .then((): FetchResult | Promise<FetchResult> | null => {
+        if (ignore) return null;
+        if (!user || !accessToken) return { applications: [] };
+        setApplicationsLoading(true);
+        if (role === "landlord") {
+          return getLandlordApplications(accessToken).then((res) => ({
+            applications: res.applications.map(mapApplication),
+            tenants: res.tenants,
+          }));
+        }
+        return getMyApplications(accessToken).then((res) => ({ applications: res.map(mapApplication) }));
+      })
+      .then((result) => {
+        if (ignore || !result) return;
+        setApplications(result.applications);
+        const tenantEntries = result.tenants;
+        if (tenantEntries) {
+          setTenants((prev) => {
+            const next = { ...prev };
+            for (const [tenantId, profile] of Object.entries(tenantEntries)) {
+              next[tenantId] = { ...profile, bankAccounts: [], transactions: [] };
+            }
+            return next;
+          });
+        }
+      })
+      .catch(() => {
+        if (!ignore) setApplications([]);
+      })
+      .finally(() => {
+        if (!ignore) setApplicationsLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [user, accessToken, role]);
+
   const syncOwnProfile = useCallback(
-    (override?: VerificationResult) => {
+    (overrides?: { verification?: VerificationResult; identity?: IdentityResult }) => {
       if (!user || role !== "tenant") return;
-      const effectiveStatus = override?.status ?? verificationStatus;
-      const effectiveData = override ? override.data : verificationData;
+      const effectiveStatus = overrides?.verification?.status ?? verificationStatus;
+      const effectiveData = overrides?.verification ? overrides.verification.data : verificationData;
+      const effectiveIdentityStatus = overrides?.identity?.status ?? identityStatus;
+      const effectiveIdentityData = overrides?.identity ? overrides.identity.data : identityData;
       setTenants((prev) => {
         const existing = prev[user.id];
         const isVerified = effectiveStatus === "verified" && !!effectiveData;
+        const isIdentityVerified = effectiveIdentityStatus === "verified";
         const next: TenantProfile = {
           id: user.id,
           name: existing?.name ?? nameFromEmail(user.email ?? "tenant"),
           email: user.email ?? existing?.email ?? "",
-          identityStatus: isVerified ? "verified" : effectiveStatus === "processing" ? "pending" : "unverified",
-          identityDetails: isVerified ? "Bank-verified identity via Plaid" : "Awaiting bank verification",
+          identityStatus: isIdentityVerified
+            ? "verified"
+            : effectiveIdentityStatus === "processing"
+            ? "pending"
+            : "unverified",
+          identityDetails: isIdentityVerified
+            ? "Stripe Identity — document verified"
+            : effectiveIdentityStatus === "processing"
+            ? "Stripe is reviewing your document"
+            : effectiveIdentityData?.status === "canceled"
+            ? "Stripe Identity check was not completed"
+            : "Not yet verified",
           monthlyVerifiedIncome: isVerified ? effectiveData?.income?.predicted_monthly_income ?? 0 : 0,
           annualVerifiedIncome: isVerified ? (effectiveData?.income?.predicted_monthly_income ?? 0) * 12 : 0,
           creditScore: existing?.creditScore ?? 0,
@@ -269,7 +278,7 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return { ...prev, [user.id]: next };
       });
     },
-    [user, role, verificationStatus, verificationData]
+    [user, role, verificationStatus, verificationData, identityStatus, identityData]
   );
 
   const addProperty: PropertyContextType["addProperty"] = useCallback(
@@ -317,52 +326,60 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [accessToken]
   );
 
-  const applyToProperty = useCallback(
-    (propertyId: string): { ok: boolean; message: string } => {
-      if (!user || role !== "tenant") {
+  const applyToProperty: PropertyContextType["applyToProperty"] = useCallback(
+    async (propertyId) => {
+      if (!user || role !== "tenant" || !accessToken) {
         return { ok: false, message: "You must be logged in as a tenant to apply." };
       }
-      let alreadyApplied = false;
-      setApplications((prev) => {
-        if (prev.some((a) => a.tenantId === user.id && a.propertyId === propertyId)) {
-          alreadyApplied = true;
-          return prev;
-        }
-        return [
-          ...prev,
-          {
-            id: `app-${Date.now()}`,
-            propertyId,
-            tenantId: user.id,
-            status: "pending",
-            appliedAt: new Date().toISOString(),
-          },
-        ];
-      });
-      // Capture the applicant's current verification state into the shared
-      // pool so the landlord's checklist has something to read immediately.
-      syncOwnProfile();
-      if (alreadyApplied) return { ok: false, message: "You've already applied to this property." };
-      return { ok: true, message: "Application submitted." };
+      if (applications.some((a) => a.propertyId === propertyId)) {
+        return { ok: false, message: "You've already applied to this property." };
+      }
+      try {
+        const created = await applyToPropertyApi(accessToken, propertyId);
+        setApplications((prev) => [...prev, mapApplication(created)]);
+        // Capture the applicant's current verification state into the
+        // shared pool so the landlord's checklist has something to read
+        // immediately, without waiting on their next fetch.
+        syncOwnProfile();
+        return { ok: true, message: "Application submitted." };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not submit application." };
+      }
     },
-    [user, role, syncOwnProfile]
+    [user, role, accessToken, applications, syncOwnProfile]
   );
 
   const hasAppliedTo = useCallback(
     (propertyId: string) => {
       if (!user) return false;
-      return applications.some((a) => a.tenantId === user.id && a.propertyId === propertyId);
+      return applications.some((a) => a.propertyId === propertyId);
     },
     [applications, user]
   );
 
-  const approveApplication = (applicationId: string) => {
-    setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, status: "approved" } : a)));
-  };
+  const setApplicationStatus = useCallback(
+    async (applicationId: string, status: "approved" | "rejected") => {
+      if (!accessToken) return { ok: false, message: "You must be logged in." };
+      try {
+        const updated = await apiUpdateApplicationStatus(accessToken, applicationId, status);
+        setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, status: updated.status } : a)));
+        return { ok: true, message: status === "approved" ? "Application approved." : "Application rejected." };
+      } catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : "Could not update application." };
+      }
+    },
+    [accessToken]
+  );
 
-  const rejectApplication = (applicationId: string) => {
-    setApplications((prev) => prev.map((a) => (a.id === applicationId ? { ...a, status: "rejected" } : a)));
-  };
+  const approveApplication = useCallback(
+    (applicationId: string) => setApplicationStatus(applicationId, "approved"),
+    [setApplicationStatus]
+  );
+
+  const rejectApplication = useCallback(
+    (applicationId: string) => setApplicationStatus(applicationId, "rejected"),
+    [setApplicationStatus]
+  );
 
   return (
     <PropertyContext.Provider
@@ -376,6 +393,7 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updatePropertyCriteria,
         tenants,
         applications,
+        applicationsLoading,
         applyToProperty,
         hasAppliedTo,
         approveApplication,

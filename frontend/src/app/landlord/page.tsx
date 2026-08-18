@@ -82,9 +82,12 @@ export default function LandlordPortal() {
     updatePropertyCriteria,
     tenants,
     applications,
+    applicationsLoading,
     approveApplication,
     rejectApplication,
   } = useProperties();
+  const [applicantActionId, setApplicantActionId] = useState<string | null>(null);
+  const [applicantActionError, setApplicantActionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -189,6 +192,22 @@ export default function LandlordPortal() {
     const result = await deleteProperty(propertyId);
     setDeletingId(null);
     if (!result.ok) setDeleteError(result.message);
+  };
+
+  const handleApprove = async (applicationId: string) => {
+    setApplicantActionError(null);
+    setApplicantActionId(applicationId);
+    const result = await approveApplication(applicationId);
+    setApplicantActionId(null);
+    if (!result.ok) setApplicantActionError(result.message);
+  };
+
+  const handleReject = async (applicationId: string) => {
+    setApplicantActionError(null);
+    setApplicantActionId(applicationId);
+    const result = await rejectApplication(applicationId);
+    setApplicantActionId(null);
+    if (!result.ok) setApplicantActionError(result.message);
   };
 
   if (authLoading || !user || role !== "landlord") {
@@ -428,6 +447,13 @@ export default function LandlordPortal() {
               </p>
             </div>
 
+            {applicantActionError && (
+              <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                {applicantActionError}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               {(["all", "pending", "approved", "rejected"] as const).map((f) => (
                 <button
@@ -442,7 +468,12 @@ export default function LandlordPortal() {
               ))}
             </div>
 
-            {visibleApplications.length === 0 ? (
+            {applicationsLoading ? (
+              <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-12 text-center flex items-center justify-center gap-2 text-sm text-neutral-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading applicants…
+              </div>
+            ) : visibleApplications.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-neutral-300 bg-white p-12 text-center text-sm text-neutral-500">
                 No applicants in this view yet.
               </div>
@@ -510,17 +541,27 @@ export default function LandlordPortal() {
                           {application.status === "pending" && (
                             <div className="flex items-center gap-2 pt-2">
                               <button
-                                onClick={() => approveApplication(application.id)}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors"
+                                onClick={() => handleApprove(application.id)}
+                                disabled={applicantActionId === application.id}
+                                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors disabled:opacity-60"
                               >
-                                <CheckCircle2 className="h-4 w-4" />
+                                {applicantActionId === application.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-4 w-4" />
+                                )}
                                 Approve Applicant
                               </button>
                               <button
-                                onClick={() => rejectApplication(application.id)}
-                                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-100 transition-colors"
+                                onClick={() => handleReject(application.id)}
+                                disabled={applicantActionId === application.id}
+                                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700 hover:bg-neutral-100 transition-colors disabled:opacity-60"
                               >
-                                <XCircle className="h-4 w-4" />
+                                {applicantActionId === application.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <XCircle className="h-4 w-4" />
+                                )}
                                 Reject
                               </button>
                             </div>

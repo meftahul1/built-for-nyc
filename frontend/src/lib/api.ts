@@ -81,6 +81,34 @@ export function getVerificationStatus(accessToken: string) {
   return request<VerifyStatusResponse>("/plaid/verify/status", accessToken, { method: "GET" });
 }
 
+export type IdentitySessionResponse = { url: string; session_id: string; status: string };
+
+export type IdentityVerificationStatus =
+  | "not_started"
+  | "requires_input"
+  | "processing"
+  | "verified"
+  | "canceled";
+
+export type IdentityStatusResponse = {
+  status: IdentityVerificationStatus;
+  session_id: string | null;
+  last_error_reason: string | null;
+  verified_at: string | null;
+  created_at: string | null;
+};
+
+export function createIdentitySession(accessToken: string, returnUrl: string) {
+  return request<IdentitySessionResponse>("/identity/session", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ return_url: returnUrl }),
+  });
+}
+
+export function getIdentityStatus(accessToken: string) {
+  return request<IdentityStatusResponse>("/identity/status", accessToken, { method: "GET" });
+}
+
 export type SignupRole = "tenant" | "landlord";
 
 export type SignupResponse = { id: string; email: string | null; role: SignupRole };
@@ -170,4 +198,58 @@ export function updatePropertyCriteria(accessToken: string, propertyId: string, 
 
 export function deletePropertyRecord(accessToken: string, propertyId: string) {
   return request<{ status: string }>(`/properties/${propertyId}`, accessToken, { method: "DELETE" });
+}
+
+export type ApplicationStatus = "pending" | "approved" | "rejected";
+
+export type ApplicationRecord = {
+  id: string;
+  propertyId: string;
+  tenantId: string;
+  status: ApplicationStatus;
+  appliedAt: string;
+};
+
+export type TenantProfileDto = {
+  id: string;
+  name: string;
+  email: string;
+  identityStatus: "verified" | "pending" | "unverified";
+  identityDetails: string;
+  monthlyVerifiedIncome: number;
+  annualVerifiedIncome: number;
+  creditScore: number;
+  creditTier: string;
+  creditUtilization: number;
+};
+
+export type LandlordApplicationsResponse = {
+  applications: ApplicationRecord[];
+  tenants: Record<string, TenantProfileDto>;
+};
+
+export function applyToPropertyApi(accessToken: string, propertyId: string) {
+  return request<ApplicationRecord>("/applications", accessToken, {
+    method: "POST",
+    body: JSON.stringify({ propertyId }),
+  });
+}
+
+export function getMyApplications(accessToken: string) {
+  return request<ApplicationRecord[]>("/applications/mine", accessToken, { method: "GET" });
+}
+
+export function getLandlordApplications(accessToken: string) {
+  return request<LandlordApplicationsResponse>("/applications/landlord", accessToken, { method: "GET" });
+}
+
+export function updateApplicationStatus(
+  accessToken: string,
+  applicationId: string,
+  status: "approved" | "rejected"
+) {
+  return request<ApplicationRecord>(`/applications/${applicationId}`, accessToken, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
 }

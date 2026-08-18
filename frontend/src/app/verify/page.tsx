@@ -66,7 +66,7 @@ export default function VerifyPage() {
           metadata.institution?.institution_id ?? null,
           metadata.institution?.name ?? null
         );
-        syncOwnProfile(result);
+        syncOwnProfile({ verification: result });
         setStage("done");
         setTimeout(() => router.push("/tenant-dashboard"), 1200);
       } catch (err) {

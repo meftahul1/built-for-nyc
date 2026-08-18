@@ -366,7 +366,7 @@ export default function Home() {
 
           {/* Demo Interactive Action */}
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <button
+            {/* <button
               onClick={triggerDemoVerify}
               disabled={isVerifyingDemo}
               className="flex items-center gap-2 rounded-xl bg-neutral-900 hover:bg-neutral-800 px-6 py-3 text-sm font-bold text-white transition-all disabled:opacity-50"
@@ -382,7 +382,7 @@ export default function Home() {
                   Simulate Live Verification
                 </>
               )}
-            </button>
+            </button> */}
 
             {demoVerified && (
               <div className="flex items-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-200 animate-in fade-in zoom-in-95">

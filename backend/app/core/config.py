@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     plaid_secret: str
     plaid_env: str = "sandbox"  # sandbox | production
 
+    stripe_secret_key: str
+    stripe_webhook_secret: str = ""  # optional — only needed to verify /identity/webhook
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

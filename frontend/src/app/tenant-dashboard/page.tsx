@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { BankAccount, Transaction, useProperties } from "@/context/PropertyContext";
 import { useAuth } from "@/context/AuthContext";
 import { useVerification } from "@/context/VerificationContext";
+import { useIdentity } from "@/context/IdentityContext";
 import { InitialsAvatar } from "@/components/InitialsAvatar";
 import {
   ShieldCheck,
@@ -47,7 +48,10 @@ export default function TenantDashboardPage() {
   const router = useRouter();
   const { user, role, accessToken, loading: authLoading } = useAuth();
   const { status: verificationStatus, data: verificationData, refreshStatus } = useVerification();
+  const { status: identityStatus, refreshStatus: refreshIdentityStatus, startVerification } = useIdentity();
   const { syncOwnProfile } = useProperties();
+  const [identityLaunching, setIdentityLaunching] = useState(false);
+  const [identityError, setIdentityError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -61,11 +65,33 @@ export default function TenantDashboardPage() {
   }, [authLoading, user, role, router]);
 
   useEffect(() => {
-    if (accessToken) refreshStatus().then((result) => syncOwnProfile(result));
+    if (!accessToken) return;
+    Promise.all([refreshStatus(), refreshIdentityStatus()]).then(([verification, identity]) => {
+      syncOwnProfile({ verification, identity });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
   const isVerified = verificationStatus === "verified" && !!verificationData;
+  const isIdentityVerified = identityStatus === "verified";
+
+  const startIdentityVerification = useCallback(async () => {
+    setIdentityError(null);
+    if (identityStatus === "processing") {
+      const result = await refreshIdentityStatus();
+      syncOwnProfile({ identity: result });
+      return;
+    }
+    setIdentityLaunching(true);
+    try {
+      const returnUrl = `${window.location.origin}/verify-identity/return`;
+      const url = await startVerification(returnUrl);
+      window.location.href = url;
+    } catch (err) {
+      setIdentityError(err instanceof Error ? err.message : "Could not start identity verification.");
+      setIdentityLaunching(false);
+    }
+  }, [identityStatus, refreshIdentityStatus, syncOwnProfile, startVerification]);
 
   const name = useMemo(() => (user?.email ? nameFromEmail(user.email) : "Tenant"), [user]);
 
@@ -151,6 +177,37 @@ export default function TenantDashboardPage() {
             >
               {verificationStatus === "processing" ? "Check Again" : "Verify with Plaid"}
             </Link>
+          </div>
+        )}
+
+        {!isIdentityVerified && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs font-bold text-amber-900">
+            <div className="flex items-center gap-2">
+              {identityStatus === "processing" ? (
+                <Clock className="h-5 w-5 text-amber-600 flex-shrink-0" />
+              ) : (
+                <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0" />
+              )}
+              {identityStatus === "processing"
+                ? "Stripe is reviewing your government ID — this usually takes a minute."
+                : identityStatus === "failed"
+                ? "Your last ID verification attempt was not completed. Try again with Stripe Identity."
+                : identityStatus === "requires_input"
+                ? "Your last attempt needs another try — Stripe couldn't confirm your document."
+                : "You haven't verified your identity yet. Scan a government ID with Stripe Identity."}
+              {identityError && <span className="block font-normal text-amber-700 mt-1">{identityError}</span>}
+            </div>
+            <button
+              onClick={startIdentityVerification}
+              disabled={identityLaunching}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-amber-700 transition-colors flex-shrink-0 disabled:opacity-60"
+            >
+              {identityLaunching
+                ? "Starting…"
+                : identityStatus === "processing"
+                ? "Check Again"
+                : "Verify with Stripe Identity"}
+            </button>
           </div>
         )}
 
@@ -283,11 +340,19 @@ export default function TenantDashboardPage() {
                       <p className="text-[11px] text-emerald-700">Confirmed via Plaid Bank Income</p>
                     </div>
                   </div>
-                  <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-200/80 flex items-center gap-3">
-                    <UserCheck className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                  <div
+                    className={`p-3.5 rounded-2xl border flex items-center gap-3 ${
+                      isIdentityVerified ? "bg-blue-50/60 border-blue-200/80" : "bg-neutral-50 border-neutral-200"
+                    }`}
+                  >
+                    <UserCheck className={`h-5 w-5 flex-shrink-0 ${isIdentityVerified ? "text-blue-600" : "text-neutral-400"}`} />
                     <div>
-                      <p className="font-bold text-blue-900">Identity Verified</p>
-                      <p className="text-[11px] text-blue-700">Confirmed by MiddleMan</p>
+                      <p className={`font-bold ${isIdentityVerified ? "text-blue-900" : "text-neutral-500"}`}>
+                        Identity {isIdentityVerified ? "Verified" : "Not Verified"}
+                      </p>
+                      <p className={`text-[11px] ${isIdentityVerified ? "text-blue-700" : "text-neutral-400"}`}>
+                        {isIdentityVerified ? "Confirmed via Stripe Identity" : "Verify your government ID above"}
+                      </p>
                     </div>
                   </div>
                 </div>
