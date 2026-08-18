@@ -22,11 +22,13 @@ import {
   Clock,
   AlertCircle,
   Loader2,
+  Home as HomeIcon,
+  Trash2,
 } from "lucide-react";
 
 export default function PropertiesPage() {
   const router = useRouter();
-  const { properties, propertiesLoading, applyToProperty, hasAppliedTo } = useProperties();
+  const { properties, propertiesLoading, applyToProperty, hasAppliedTo, deleteProperty } = useProperties();
   const { user, role } = useAuth();
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -37,6 +39,28 @@ export default function PropertiesPage() {
   const [isApplying, setIsApplying] = useState(false);
   const [appliedSuccess, setAppliedSuccess] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+
+  // Own-listing management state (edit/delete, shown instead of the apply
+  // CTA when a landlord opens a card for a property they listed themselves)
+  const [isDeletingOwn, setIsDeletingOwn] = useState(false);
+  const [ownActionError, setOwnActionError] = useState<string | null>(null);
+
+  const isOwnListing = (property: Property) =>
+    role === "landlord" && !!user && property.landlordId === user.id;
+
+  const handleDeleteOwnListing = () => {
+    if (!selectedProperty) return;
+    setOwnActionError(null);
+    setIsDeletingOwn(true);
+    deleteProperty(selectedProperty.id).then((result) => {
+      setIsDeletingOwn(false);
+      if (result.ok) {
+        setSelectedProperty(null);
+      } else {
+        setOwnActionError(result.message);
+      }
+    });
+  };
 
   // Filter properties based on user controls
   const filteredProperties = properties.filter((p) => {
@@ -143,6 +167,7 @@ export default function PropertiesPage() {
                 setSelectedProperty(property);
                 setAppliedSuccess(false);
                 setApplyError(null);
+                setOwnActionError(null);
               }}
               className="group cursor-pointer rounded-3xl border border-neutral-200/90 bg-white overflow-hidden airbnb-shadow airbnb-shadow-hover flex flex-col justify-between"
             >
@@ -159,6 +184,14 @@ export default function PropertiesPage() {
                     MiddleMan Verified
                   </span>
                 </div>
+                {isOwnListing(property) && (
+                  <div className="absolute top-3 right-3">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900/90 backdrop-blur-md px-3 py-1 text-xs font-bold text-white shadow-md">
+                      <HomeIcon className="h-3.5 w-3.5" />
+                      Your Listing
+                    </span>
+                  </div>
+                )}
                 <div className="absolute bottom-3 right-3">
                   <span className="inline-flex items-center rounded-full bg-neutral-900/80 backdrop-blur-md px-3 py-1 text-xs font-extrabold text-white">
                     ${property.price.toLocaleString()}/mo
@@ -334,52 +367,91 @@ export default function PropertiesPage() {
                 </div>
               </div>
 
-              {/* Application Action CTA */}
+              {/* Action CTA: own-listing management for the landlord who
+                  posted it, otherwise the tenant apply flow */}
               <div className="pt-4 border-t border-neutral-200 space-y-2">
-                {applyError && (
-                  <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
-                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                    {applyError}
-                  </div>
-                )}
-                {appliedSuccess || hasAppliedTo(selectedProperty.id) ? (
-                  <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-800 text-sm font-bold animate-in fade-in">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                      Verification Passport Submitted to Landlord!
-                    </div>
-                    <button
-                      onClick={() => setSelectedProperty(null)}
-                      className="text-xs bg-emerald-700 text-white px-4 py-2 rounded-xl"
-                    >
-                      Done
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleApplyVerification}
-                    disabled={isApplying}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FF385C] to-[#E00B41] py-4 text-base font-bold text-white shadow-lg shadow-[#FF385C]/25 transition-all hover:shadow-xl hover:shadow-[#FF385C]/35 disabled:opacity-50"
-                  >
-                    {isApplying ? (
-                      <>
-                        <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Transmitting Verified Passport…
-                      </>
-                    ) : !user ? (
-                      <>
-                        <Sparkles className="h-5 w-5" />
-                        Log In to Apply
-                        <ArrowRight className="h-5 w-5" />
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="h-5 w-5" />
-                        Apply with Instant MiddleMan Passport
-                        <ArrowRight className="h-5 w-5" />
-                      </>
+                {isOwnListing(selectedProperty) ? (
+                  <>
+                    {ownActionError && (
+                      <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                        {ownActionError}
+                      </div>
                     )}
-                  </button>
+                    <div className="flex items-center gap-2 rounded-2xl bg-neutral-50 border border-neutral-200 px-4 py-3 text-xs font-semibold text-neutral-600">
+                      <HomeIcon className="h-4 w-4 flex-shrink-0 text-neutral-400" />
+                      This is your listing — manage it below instead of applying.
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => router.push(`/landlord?edit=${selectedProperty.id}`)}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-neutral-900 py-3.5 text-sm font-bold text-white hover:bg-neutral-800 transition-colors"
+                      >
+                        <SlidersHorizontal className="h-4 w-4" />
+                        Edit Requirements
+                      </button>
+                      <button
+                        onClick={handleDeleteOwnListing}
+                        disabled={isDeletingOwn}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 py-3.5 text-sm font-bold text-rose-700 hover:bg-rose-100 transition-colors disabled:opacity-50"
+                      >
+                        {isDeletingOwn ? (
+                          <span className="h-4 w-4 border-2 border-rose-700 border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                        Delete Listing
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {applyError && (
+                      <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700">
+                        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                        {applyError}
+                      </div>
+                    )}
+                    {appliedSuccess || hasAppliedTo(selectedProperty.id) ? (
+                      <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-emerald-800 text-sm font-bold animate-in fade-in">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                          Verification Passport Submitted to Landlord!
+                        </div>
+                        <button
+                          onClick={() => setSelectedProperty(null)}
+                          className="text-xs bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleApplyVerification}
+                        disabled={isApplying}
+                        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#FF385C] to-[#E00B41] py-4 text-base font-bold text-white shadow-lg shadow-[#FF385C]/25 transition-all hover:shadow-xl hover:shadow-[#FF385C]/35 disabled:opacity-50"
+                      >
+                        {isApplying ? (
+                          <>
+                            <span className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            Transmitting Verified Passport…
+                          </>
+                        ) : !user ? (
+                          <>
+                            <Sparkles className="h-5 w-5" />
+                            Log In to Apply
+                            <ArrowRight className="h-5 w-5" />
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-5 w-5" />
+                            Apply with Instant MiddleMan Passport
+                            <ArrowRight className="h-5 w-5" />
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

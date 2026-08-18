@@ -39,3 +39,17 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from exc
 
     return payload
+
+
+def get_user_role(user: dict) -> str:
+    """Returns the user's role, defaulting to "tenant" when unset.
+
+    Mirrors the frontend's fallback (AuthContext.tsx: `user_metadata?.role ?? "tenant"`).
+    Accounts are only guaranteed to have `user_metadata.role` set if they went
+    through this app's own /auth/signup flow; accounts created directly in
+    Supabase (e.g. manually seeded test users) can have no role in the JWT at
+    all, even if their `profiles.role` row says otherwise. Without this
+    fallback the backend would 403 users the frontend already treats — and
+    displays UI for — as tenants.
+    """
+    return user.get("user_metadata", {}).get("role") or "tenant"

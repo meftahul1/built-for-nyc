@@ -113,6 +113,24 @@ export default function LandlordPortal() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // Opens the criteria editor directly when arriving via
+  // /landlord?edit=<propertyId> (the "Edit Requirements" link on a
+  // landlord's own listing card at /properties).
+  useEffect(() => {
+    if (propertiesLoading) return;
+    const editId = new URLSearchParams(window.location.search).get("edit");
+    if (!editId) return;
+    const property = properties.find((p) => p.id === editId);
+    if (!property) return;
+    Promise.resolve().then(() => {
+      setActiveTab("properties");
+      setCriteriaError(null);
+      setCriteriaEditPropertyId(property.id);
+      setCriteriaDraft(property.criteria);
+      router.replace("/landlord");
+    });
+  }, [propertiesLoading, properties, router]);
+
   // Add Property form state
   const [title, setTitle] = useState("");
   const [address, setAddress] = useState("");

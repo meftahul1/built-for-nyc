@@ -2,7 +2,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, get_user_role
 from app.core.supabase_client import get_supabase_admin_client
 from app.schemas.properties import CriteriaUpdate, PropertyCreate, PropertyOut
 
@@ -53,7 +53,7 @@ def list_properties() -> list[PropertyOut]:
 
 @router.post("", response_model=PropertyOut)
 def create_property(body: PropertyCreate, user: dict = Depends(get_current_user)) -> PropertyOut:
-    if user.get("user_metadata", {}).get("role") != "landlord":
+    if get_user_role(user) != "landlord":
         raise HTTPException(status_code=403, detail="Only landlord accounts can list properties.")
 
     db = get_supabase_admin_client()
